@@ -7,16 +7,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>最新消息｜公告管理</title>
   <script src="https://cdn.tailwindcss.com">
+    // === injected: loader & downloader ===
+    async function loadFromServer(){
+      try{
+        const url = (window.NEWS_JSON_URL || '/news.json') + (window.NEWS_JSON_URL?.includes('?') ? '&' : '?') + 't=' + Date.now();
+        const res = await fetch(url, {cache:'no-store'});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json();
+        if(!Array.isArray(data)) throw new Error('資料格式需為陣列');
+        items = data;
+        render();
+        alert('已載入 ' + url + '，共 ' + items.length + ' 筆');
+      }catch(err){
+        alert('載入失敗：' + err.message + '\n\n可能原因：\n1) 路徑錯誤（請確認 news.json 與此頁是否同網域/路徑）\n2) CORS 限制（跨網域需開放 Access-Control-Allow-Origin）\n3) 檔案內容不是 JSON 陣列');
+      }
+    }
+    function downloadJson(){
+      try{
+        const blob = new Blob([JSON.stringify(items, null, 2)], {type:'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'news.json';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(()=>{
+          URL.revokeObjectURL(a.href);
+          a.remove();
+        }, 0);
+      }catch(err){
+        alert('下載失敗：' + err.message);
+      }
+    }
+    
+
 // === injected: GitHub upload ===
 (function(){
   function toB64(str){
-    // UTF-8 safe base64
     const utf8 = new TextEncoder().encode(str);
     let binary = '';
     for (let i=0;i<utf8.length;i++) binary += String.fromCharCode(utf8[i]);
     return btoa(binary);
   }
-
   async function ghFetch(url, opts){
     const res = await fetch(url, opts);
     const txt = await res.text();
@@ -28,34 +59,29 @@
     }
     return data ?? {};
   }
-
   async function uploadNewsToGitHub(){
     const status = document.getElementById('ghStatus');
     const owner  = document.getElementById('ghOwner').value.trim();
     const repo   = document.getElementById('ghRepo').value.trim();
     const branch = document.getElementById('ghBranch').value.trim() || 'main';
-    const path   = document.getElementById('ghPath').value.trim() || 'public/news.json';
+    const path   = document.getElementById('ghPath').value.trim() || 'news.json';
     const token  = document.getElementById('ghToken').value.trim();
     const message= document.getElementById('ghMessage').value.trim() || 'chore(news): update news.json';
-
     if(!owner || !repo || !token){
       status.textContent = '請填寫 owner / repo / token';
       status.className = 'text-sm text-red-600';
       return;
     }
-
     status.textContent = '讀取現有檔案狀態...';
     status.className = 'text-sm text-slate-600';
-
     const base = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
     const headers = {
       'Accept': 'application/vnd.github+json',
       'Authorization': `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28'
     };
-
-    // 1) 取得 sha（若檔案存在）
-    let sha = undefined;
+    // get sha if exists
+    let sha;
     try {
       const meta = await ghFetch(base + `?ref=${encodeURIComponent(branch)}`, { headers });
       sha = meta.sha;
@@ -65,10 +91,8 @@
         status.className = 'text-sm text-red-600';
         return;
       }
-      // 404 -> new file
     }
-
-    // 2) 準備內容（用目前 items 的 JSON）
+    // prepare content
     let jsonStr = '';
     try{
       jsonStr = JSON.stringify(items, null, 2);
@@ -77,21 +101,12 @@
       status.className = 'text-sm text-red-600';
       return;
     }
-
-    // 3) PUT 更新或建立
+    // upload
     status.textContent = '上傳中...';
     try {
-      const body = {
-        message,
-        content: toB64(jsonStr),
-        branch
-      };
+      const body = { message, content: toB64(jsonStr), branch };
       if(sha) body.sha = sha;
-      const result = await ghFetch(base, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(body)
-      });
+      const result = await ghFetch(base, { method: 'PUT', headers, body: JSON.stringify(body) });
       status.innerHTML = `✅ 已提交：<a class="underline" target="_blank" href="${result.commit?.html_url || '#'}">查看 commit</a>`;
       status.className = 'text-sm text-emerald-600';
     } catch(e){
@@ -99,11 +114,85 @@
       status.className = 'text-sm text-red-600';
     }
   }
-
   const btn = document.getElementById('btnGhUpload');
-  if(btn) btn.addEventListener('click', (e)=>{
-    e.preventDefault();
-    uploadNewsToGitHub();
+  if(btn) btn.addEventListener('click', (e)=>{ e.preventDefault(); uploadNewsToGitHub(); });
+})();
+
+
+// === injected: GitHub prefs persistence (localStorage, excludes token) ===
+(function(){
+  const KEY = 'newsGhPrefs.v1';
+  function loadPrefs(){
+    try{ return JSON.parse(localStorage.getItem(KEY) || 'null') || null; }catch{return null;}
+  }
+  function savePrefs(obj){
+    try{ localStorage.setItem(KEY, JSON.stringify(obj)); }catch{ /* quota or disabled */ }
+  }
+  function clearPrefs(){
+    try{ localStorage.removeItem(KEY); }catch{}
+  }
+  function readUI(){
+    return {
+      owner:  document.getElementById('ghOwner')?.value?.trim() || '',
+      repo:   document.getElementById('ghRepo')?.value?.trim() || '',
+      branch: document.getElementById('ghBranch')?.value?.trim() || 'main',
+      path:   document.getElementById('ghPath')?.value?.trim() || 'news.json',
+      message:document.getElementById('ghMessage')?.value?.trim() || ''
+    };
+  }
+  function writeUI(p){
+    if(!p) return;
+    if(p.owner && document.getElementById('ghOwner'))  document.getElementById('ghOwner').value = p.owner;
+    if(p.repo && document.getElementById('ghRepo'))    document.getElementById('ghRepo').value = p.repo;
+    if(p.branch && document.getElementById('ghBranch'))document.getElementById('ghBranch').value = p.branch;
+    if(p.path && document.getElementById('ghPath'))    document.getElementById('ghPath').value = p.path;
+    if(p.message && document.getElementById('ghMessage'))document.getElementById('ghMessage').value = p.message;
+  }
+
+  function maybeAutoSave(){
+    const remember = document.getElementById('ghRemember');
+    if(remember && remember.checked){
+      const prefs = readUI();
+      savePrefs({ ...prefs, _ts: Date.now() });
+    }
+  }
+
+  // On load, populate fields
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const remember = document.getElementById('ghRemember');
+    const clearBtn = document.getElementById('btnGhClear');
+    const inputs = ['ghOwner','ghRepo','ghBranch','ghPath','ghMessage'].map(id=>document.getElementById(id)).filter(Boolean);
+    const prefs = loadPrefs();
+    if(prefs){
+      writeUI(prefs);
+      if(remember) remember.checked = true;
+    }
+
+    // save on input if remember checked
+    inputs.forEach(inp=>{
+      inp.addEventListener('input', maybeAutoSave);
+      inp.addEventListener('change', maybeAutoSave);
+    });
+
+    if(remember){
+      remember.addEventListener('change', ()=>{
+        if(remember.checked){
+          maybeAutoSave();
+        }else{
+          clearPrefs();
+        }
+      });
+    }
+    if(clearBtn){
+      clearBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        clearPrefs();
+        if(remember) remember.checked = false;
+        // also clear UI values? No, keep what's typed.
+        const s = document.getElementById('ghStatus');
+        if(s){ s.textContent = '已清除保存的欄位（Token 本來就不會保存）'; s.className='text-sm text-slate-600'; }
+      });
+    }
   });
 })();
 
@@ -157,11 +246,14 @@
           <input id="ghMessage" class="w-full border rounded px-2 py-1 text-sm" placeholder="chore(news): update news.json">
         </div>
       </div>
-      <div class="mt-3 flex gap-2">
+      <div class="mt-3 flex items-center gap-3">
+        <label class="text-sm text-slate-700 inline-flex items-center gap-2 select-none"><input id="ghRemember" type="checkbox" class="align-middle"> 保存資料（不含 Token）</label>
         <button id="btnGhUpload" class="px-3 py-2 rounded bg-neutral-800 text-white text-sm hover:bg-neutral-900">上傳 news.json 到 GitHub</button>
+        <button id="btnGhClear" class="px-3 py-2 rounded border text-sm hover:bg-slate-50">清除保存</button>
         <span id="ghStatus" class="text-sm text-slate-600"></span>
       </div>
       <p class="mt-2 text-xs text-slate-500">⚠️ 安全性提醒：瀏覽器無法安全保存金鑰，請勿勾選「記住密碼」。此工具僅在你當前瀏覽器記憶體中使用 Token，不寫入 localStorage。</p>
+    <p class="mt-2 text-xs text-slate-500">⚠️ 我們不會保存 Token；若勾選保存，欄位會存於此瀏覽器的 localStorage。</p>
     </details>
 
 
