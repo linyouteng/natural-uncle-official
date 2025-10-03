@@ -196,6 +196,35 @@
   });
 })();
 
+
+async function loadFromServer(){
+  try{
+    const base = (window.NEWS_JSON_URL || '/news.json');
+    const url = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
+    console.log('[loadFromServer] GET', url);
+    const res = await fetch(url, {cache:'no-store'});
+    console.log('[loadFromServer] status', res.status, res.statusText);
+    if(!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+    const ct = res.headers.get('content-type') || '';
+    if(!/application\/json|json/.test(ct)) console.warn('[loadFromServer] content-type is', ct);
+
+    let data;
+    try {
+      data = await res.json();
+    } catch(e){
+      console.error('[loadFromServer] json parse error', e);
+      throw e;
+    }
+
+    if(!Array.isArray(data)) throw new Error('資料格式需為「陣列」');
+    items = data;
+    render();
+    alert('已載入 ' + url + '，共 ' + items.length + ' 筆');
+  }catch(err){
+    console.error('[loadFromServer] failed', err);
+    alert('載入失敗：' + err.message + '\n\n可能原因：\n1) CORS：目標伺服器未回傳 Access-Control-Allow-Origin\n2) 路徑錯誤或 404\n3) JSON 格式不是陣列\n\n請按 F12 打開 Console 觀看詳細錯誤。');
+  }
+}
 </script>
   <style>
     .badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:9999px;background:#f59e0b;color:#fff;font-size:12px}
