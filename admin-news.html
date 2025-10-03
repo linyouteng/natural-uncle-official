@@ -6,8 +6,9 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>最新消息｜公告管理</title>
-  <script src="https://cdn.tailwindcss.com">
-    // === injected: loader & downloader ===
+  <script src="https://cdn.tailwindcss.com"></script>
+<script defer>
+// === injected: loader & downloader ===
     async function loadFromServer(){
       try{
         const url = (window.NEWS_JSON_URL || '/news.json') + (window.NEWS_JSON_URL?.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -195,37 +196,8 @@
     }
   });
 })();
-
-
-async function loadFromServer(){
-  try{
-    const base = (window.NEWS_JSON_URL || '/news.json');
-    const url = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
-    console.log('[loadFromServer] GET', url);
-    const res = await fetch(url, {cache:'no-store'});
-    console.log('[loadFromServer] status', res.status, res.statusText);
-    if(!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
-    const ct = res.headers.get('content-type') || '';
-    if(!/application\/json|json/.test(ct)) console.warn('[loadFromServer] content-type is', ct);
-
-    let data;
-    try {
-      data = await res.json();
-    } catch(e){
-      console.error('[loadFromServer] json parse error', e);
-      throw e;
-    }
-
-    if(!Array.isArray(data)) throw new Error('資料格式需為「陣列」');
-    items = data;
-    render();
-    alert('已載入 ' + url + '，共 ' + items.length + ' 筆');
-  }catch(err){
-    console.error('[loadFromServer] failed', err);
-    alert('載入失敗：' + err.message + '\n\n可能原因：\n1) CORS：目標伺服器未回傳 Access-Control-Allow-Origin\n2) 路徑錯誤或 404\n3) JSON 格式不是陣列\n\n請按 F12 打開 Console 觀看詳細錯誤。');
-  }
-}
 </script>
+
   <style>
     .badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:9999px;background:#f59e0b;color:#fff;font-size:12px}
     .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
@@ -498,24 +470,11 @@ async function loadFromServer(){
       const reader = new FileReader();
       reader.onload = e => {
         try{
-          const text = e.target.result;
-          console.log('[importLocal] file length', text?.length);
-          const data = JSON.parse(text);
+          const data = JSON.parse(e.target.result);
           if(!Array.isArray(data)) throw new Error('格式應為陣列');
           items = data;
           render();
-          alert('已從本機匯入 ' + (file?.name || '檔案') + ' ，共 ' + items.length + ' 筆');
         }catch(err){
-          console.error('[importLocal] parse error', err);
-          alert('匯入失敗：' + err.message);
-        }
-      };
-      reader.onerror = e => {
-        console.error('[importLocal] reader error', e);
-        alert('讀取檔案失敗');
-      };
-      reader.readAsText(file, 'utf-8');
-    }catch(err){
           alert('匯入失敗：' + err.message);
         }
       };
